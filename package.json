@@ -6,7 +6,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "postinstall": "playwright install --with-deps chromium"
+    "postinstall": "echo 'Skipping Playwright install on Render'"
   },
   "dependencies": {
     "cors": "^2.8.5",
