@@ -56,56 +56,6 @@ function isSafeUrl(raw) {
     return { ok: true, parsed };
 }
 
-// ============================================================
-// BEZPIECZNE UKRYWANIE POPUPÓW - TYLKO CSS, BEZ JS I KLIKAŃ
-// ============================================================
-async function hidePopupsSafely(page) {
-    try {
-        // Tylko CSS - bezpieczne, nie ingeruje w działanie strony
-        await page.addStyleTag({
-            content: `
-                [class*="cookie"], [class*="consent"], [class*="gdpr"],
-                [id*="cookie"], [id*="consent"], [id*="gdpr"],
-                [class*="popup"], [class*="modal"], [class*="overlay"],
-                [class*="banner"], [class*="notification"],
-                .cookie-bar, .cookie-notice, .cookie-popup,
-                .consent-popup, .gdpr-popup, .gdpr-banner,
-                .modal-backdrop, .modal-overlay, .overlay-background,
-                .cookie-consent, .privacy-banner, .privacy-notice,
-                .cc-banner, .cc-window, .cc-popup,
-                .ot-sdk-container, .ot-sdk-banner,
-                .fc-consent-root, .fc-dialog,
-                .cmpbox, .cmpboxinner,
-                .didomi-popup, .didomi-banner,
-                .osano-cookie-banner,
-                [aria-label*="cookie"], [aria-label*="consent"],
-                [aria-label*="zgoda"], [aria-label*="ciasteczka"] {
-                    display: none !important;
-                    visibility: hidden !important;
-                    opacity: 0 !important;
-                    pointer-events: none !important;
-                    height: 0 !important;
-                    overflow: hidden !important;
-                    position: absolute !important;
-                    z-index: -9999 !important;
-                }
-                
-                body {
-                    overflow: auto !important;
-                    position: static !important;
-                    height: auto !important;
-                }
-                html {
-                    overflow: auto !important;
-                }
-            `
-        });
-        console.log('[render] Ukryto popupy przez CSS');
-    } catch (e) {
-        console.warn('[render] Błąd przy ukrywaniu popupów:', e.message);
-    }
-}
-
 app.get('/render', async (req, res) => {
     const targetUrl = req.query.url;
     if (!targetUrl) {
@@ -142,8 +92,6 @@ app.get('/render', async (req, res) => {
         } catch (navErr) {
             response = await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         }
-
-        await hidePopupsSafely(page);
 
         await page.waitForTimeout(1200);
 
