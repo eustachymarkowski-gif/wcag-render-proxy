@@ -5,6 +5,7 @@
 const express = require('express');
 const cors = require('cors');
 const { chromium } = require('playwright');
+const { handleCookieConsent } = require('playwright-autoconsent');
 // 1. Importuje paczkę express-rate-limit
 const rateLimit = require('express-rate-limit');
 
@@ -85,9 +86,32 @@ app.get('/render', async (req, res) => {
                 '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             viewport: { width: 1366, height: 900 },
             locale: 'pl-PL',
+            timezoneId: 'Europe/Warsaw',
             ignoreHTTPSErrors: false
         });
         const page = await context.newPage();
+
+        try {
+
+    await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 30000 });
+
+    const consentResult = await handleCookieConsent(page, {
+        action: 'optOut', 
+        timeout: 5000,
+        debug: false 
+    });
+
+    if (consentResult.handled) {
+        console.log(`[render] Obsłużono zgodę na cookies (${consentResult.cmp})`);
+        await page.waitForTimeout(1000);
+    } else {
+        console.log(`[render] Nie znaleziono lub nie obsłużono popupu z ciasteczkami.`);
+    }
+
+} catch (consentError) {
+    console.warn('[render] Błąd podczas obsługi popupu:', consentError.message);
+}
+
         page.setDefaultNavigationTimeout(30000);
 
         let response;
