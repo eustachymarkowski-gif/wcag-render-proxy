@@ -5,7 +5,36 @@
 const express = require('express');
 const cors = require('cors');
 const { chromium } = require('playwright');
-const { handleCookieConsent } = require('playwright-autoconsent');
+
+// Funkcja do zamykania popupów cookie
+async function handleCookieConsentManually(page) {
+    const selectors = [
+        'button:has-text("Akceptuj")',
+        'button:has-text("Accept all")',
+        'button:has-text("Zezwól")',
+        'button:has-text("Allow all")',
+        '#onetrust-accept-btn-handler',
+        '.cookie-accept-button',
+        '.accept-cookies',
+        '[aria-label="Accept cookies"]',
+        'button:has-text("OK")',
+        'button:has-text("Rozumiem")'
+    ];
+
+    for (const selector of selectors) {
+        try {
+            const button = await page.$(selector);
+            if (button) {
+                await button.click();
+                console.log(`[render] Zamknięto popup używając: ${selector}`);
+                await page.waitForTimeout(500);
+                return true;
+            }
+        } catch (e) {
+        }
+    }
+    return false;
+}
 
 // 1. Importuje paczkę express-rate-limit
 const rateLimit = require('express-rate-limit');
@@ -93,25 +122,16 @@ app.get('/render', async (req, res) => {
         const page = await context.newPage();
 
         try {
+            await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
-    await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 30000 });
-
-    const consentResult = await handleCookieConsent(page, {
-        action: 'optOut', 
-        timeout: 5000,
-        debug: false 
-    });
-
-    if (consentResult.handled) {
-        console.log(`[render] Obsłużono zgodę na cookies (${consentResult.cmp})`);
-        await page.waitForTimeout(1000);
-    } else {
-        console.log(`[render] Nie znaleziono lub nie obsłużono popupu z ciasteczkami.`);
-    }
-
-} catch (consentError) {
-    console.warn('[render] Błąd podczas obsługi popupu:', consentError.message);
-}
+            const handled = await handleCookieConsentManually(page);
+            if (handled) {
+                console.log('[render] Obsłużono popup cookie');
+                await page.waitForTimeout(1000);
+            }
+        } catch (consentError) {
+            console.warn('[render] Błąd podczas obsługi popupu:', consentError.message);
+        }
 
         page.setDefaultNavigationTimeout(30000);
 
@@ -141,7 +161,7 @@ app.get('/render', async (req, res) => {
 
         res.json({ html, status, finalUrl });
     } catch (err) {
-        if (context) await context.close().catch(() => {});
+        if (context) await context.close().catch(() => { });
         activePages--;
         console.error('[render] błąd dla', targetUrl, '-', err.message);
         res.status(502).json({ error: 'Nie udało się wyrenderować strony: ' + err.message });
@@ -155,7 +175,7 @@ async function shutdown() {
         try {
             const browser = await browserPromise;
             await browser.close();
-        } catch (e) {}
+        } catch (e) { }
     }
     process.exit(0);
 }
