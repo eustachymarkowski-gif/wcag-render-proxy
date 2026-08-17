@@ -11,8 +11,8 @@ app.set('trust proxy', 1);
 app.use(cors());
 
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minut
-    limit: 100, // 100 zapytań na IP
+    windowMs: 15 * 60 * 1000,
+    limit: 100,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Zbyt wiele zapytań z tego adresu IP, spróbuj ponownie później.'
@@ -29,7 +29,14 @@ function getBrowser() {
     if (!browserPromise) {
         browserPromise = chromium.launch({
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--disable-web-security'
+            ]
         });
     }
     return browserPromise;
@@ -54,6 +61,145 @@ function isSafeUrl(raw) {
         return { ok: false, reason: 'Adresy z sieci prywatnej są zablokowane' };
     }
     return { ok: true, parsed };
+}
+
+// ============================================================
+// UKRYWANIE POPUPÓW PRZEZ INIEKCJĘ CSS/JS
+// ============================================================
+async function hidePopups(page) {
+    // Metoda 1: Ukrywanie poprzez CSS
+    await page.addStyleTag({
+        content: `
+            [class*="cookie"], [class*="consent"], [class*="gdpr"],
+            [id*="cookie"], [id*="consent"], [id*="gdpr"],
+            [class*="popup"], [class*="modal"], [class*="overlay"],
+            [class*="banner"], [class*="notification"],
+            .cookie-bar, .cookie-notice, .cookie-popup,
+            .consent-popup, .gdpr-popup, .gdpr-banner,
+            .modal-backdrop, .modal-overlay, .overlay-background,
+            .dialog-overlay, .dialog-backdrop,
+            .cookie-consent, .privacy-banner, .privacy-notice,
+            .cc-banner, .cc-window, .cc-popup,
+            .ot-sdk-container, .ot-sdk-banner, .onetrust-pc-dark-filter,
+            [aria-label*="cookie"], [aria-label*="consent"],
+            [aria-label*="zgoda"], [aria-label*="ciasteczka"],
+            .fc-consent-root, .fc-dialog, .fc-frame,
+            .truste-box, .truste-overlay,
+            .cmpbox, .cmpboxbtns, .cmpboxinner,
+            .didomi-popup, .didomi-banner, .didomi-consent,
+            .osano-cookie-banner, .osano-consent {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+                height: 0 !important;
+                overflow: hidden !important;
+                position: absolute !important;
+                z-index: -9999 !important;
+            }
+            
+            body {
+                overflow: auto !important;
+                position: static !important;
+                height: auto !important;
+            }
+            
+            html {
+                overflow: auto !important;
+            }
+        `
+    });
+
+    // Metoda 2: Usuwanie przez JavaScript
+    await page.evaluate(() => {
+        const selectors = [
+            '[class*="cookie"]', '[class*="consent"]', '[class*="gdpr"]',
+            '[id*="cookie"]', '[id*="consent"]', '[id*="gdpr"]',
+            '[class*="popup"]', '[class*="modal"]', '[class*="overlay"]',
+            '.cookie-bar', '.cookie-notice', '.consent-popup',
+            '.modal-backdrop', '.modal-overlay',
+            '.ot-sdk-container', '.ot-sdk-banner',
+            '.fc-consent-root', '.fc-dialog',
+            '.cmpbox', '.cmpboxinner',
+            '.didomi-popup', '.didomi-banner'
+        ];
+        
+        selectors.forEach(sel => {
+            document.querySelectorAll(sel).forEach(el => {
+                const style = window.getComputedStyle(el);
+                const isVisible = style.display !== 'none' && 
+                                 style.visibility !== 'hidden' && 
+                                 style.opacity !== '0';
+                
+                if (isVisible && (
+                    el.textContent.includes('cookie') ||
+                    el.textContent.includes('consent') ||
+                    el.textContent.includes('zgoda') ||
+                    el.textContent.includes('ciasteczka') ||
+                    el.textContent.includes('prywatność') ||
+                    el.textContent.includes('privacy') ||
+                    el.textContent.includes('GDPR')
+                )) {
+                    el.remove();
+                }
+            });
+        });
+
+        document.body.style.overflow = 'auto';
+        document.body.style.position = 'static';
+        document.documentElement.style.overflow = 'auto';
+
+        document.body.classList.remove('no-scroll', 'modal-open', 'overflow-hidden');
+    });
+
+    // Metoda 3: Próba kliknięcia przycisków akceptacji
+    try {
+        const cookieButtons = [
+            'button:has-text("Akceptuj")',
+            'button:has-text("Accept all")',
+            'button:has-text("Zezwól")',
+            'button:has-text("Allow all")',
+            'button:has-text("OK")',
+            'button:has-text("Rozumiem")',
+            'button:has-text("Zgadzam się")',
+            'button:has-text("I agree")',
+            '#onetrust-accept-btn-handler',
+            '.cookie-accept-button',
+            '.accept-cookies',
+            '[aria-label="Accept cookies"]',
+            '[aria-label="Zgoda na cookies"]',
+            '.cc-btn',
+            '.fc-button',
+            '.didomi-consent-popup__actions__accept'
+        ];
+
+        for (const selector of cookieButtons) {
+            const button = await page.$(selector);
+            if (button) {
+                await button.click();
+                console.log(`[render] Kliknięto przycisk: ${selector}`);
+                await page.waitForTimeout(300);
+                break;
+            }
+        }
+    } catch (e) {
+        console.warn('[render] Błąd przy klikaniu przycisków:', e.message);
+    }
+
+    // Metoda 4: Dodatkowe CSS do usunięcia popupów po kliknięciu
+    await page.addStyleTag({
+        content: `
+            [class*="cookie"], [class*="consent"], [class*="popup"],
+            [class*="modal"], [class*="overlay"], [class*="banner"] {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+                height: 0 !important;
+                overflow: hidden !important;
+            }
+        `
+    });
 }
 
 app.get('/render', async (req, res) => {
@@ -84,33 +230,19 @@ app.get('/render', async (req, res) => {
             ignoreHTTPSErrors: false
         });
         const page = await context.newPage();
-        page.setDefaultNavigationTimeout(30000);
-
-        try {
-            const cookieSelectors = [
-                'button:has-text("Akceptuj")',
-                'button:has-text("Accept all")',
-                '#onetrust-accept-btn-handler',
-                '.cookie-accept-button'
-            ];
-
-            for (const selector of cookieSelectors) {
-                const button = await page.$(selector);
-                if (button) {
-                    await button.click();
-                    console.log(`[render] Zamknięto popup: ${selector}`);
-                    await page.waitForTimeout(300);
-                    break;
-                }
-            }
-        } catch (e) {
-        }
 
         let response;
         try {
             response = await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 30000 });
         } catch (navErr) {
             response = await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        }
+
+        try {
+            await hidePopups(page);
+            console.log('[render] Ukryto popupy na stronie');
+        } catch (popupError) {
+            console.warn('[render] Błąd przy ukrywaniu popupów:', popupError.message);
         }
 
         await page.waitForTimeout(1200);
@@ -131,9 +263,8 @@ app.get('/render', async (req, res) => {
         }
 
         res.json({ html, status, finalUrl });
-    }
-    catch (err) {
-        if (context) await context.close().catch(() => { });
+    } catch (err) {
+        if (context) await context.close().catch(() => {});
         activePages--;
         console.error('[render] błąd dla', targetUrl, '-', err.message);
         res.status(502).json({ error: 'Nie udało się wyrenderować strony: ' + err.message });
@@ -147,7 +278,7 @@ async function shutdown() {
         try {
             const browser = await browserPromise;
             await browser.close();
-        } catch (e) { }
+        } catch (e) {}
     }
     process.exit(0);
 }
