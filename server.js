@@ -1,58 +1,22 @@
 // ============================================================
 // WCAG Render Proxy - serwer pomocniczy do pobierania stron
 // ============================================================
-
 const express = require('express');
 const cors = require('cors');
 const { chromium } = require('playwright');
-
-// Funkcja do zamykania popupów cookie
-async function handleCookieConsentManually(page) {
-    const selectors = [
-        'button:has-text("Akceptuj")',
-        'button:has-text("Accept all")',
-        'button:has-text("Zezwól")',
-        'button:has-text("Allow all")',
-        '#onetrust-accept-btn-handler',
-        '.cookie-accept-button',
-        '.accept-cookies',
-        '[aria-label="Accept cookies"]',
-        'button:has-text("OK")',
-        'button:has-text("Rozumiem")'
-    ];
-
-    for (const selector of selectors) {
-        try {
-            const button = await page.$(selector);
-            if (button) {
-                await button.click();
-                console.log(`[render] Zamknięto popup używając: ${selector}`);
-                await page.waitForTimeout(500);
-                return true;
-            }
-        } catch (e) {
-        }
-    }
-    return false;
-}
-
-// 1. Importuje paczkę express-rate-limit
 const rateLimit = require('express-rate-limit');
 
 const app = express();
 app.set('trust proxy', 1);
 app.use(cors());
 
-// 2. Ustawienia limitera
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minut
-    limit: 100, // Limit: 100 zapytań na IP w podanym oknie
+    limit: 100, // 100 zapytań na IP
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Zbyt wiele zapytań z tego adresu IP, spróbuj ponownie później.'
 });
-
-// 3. Stosowanie limitera do wszystkich zapytań
 app.use(limiter);
 
 const PORT = process.env.PORT || 3001;
@@ -120,20 +84,27 @@ app.get('/render', async (req, res) => {
             ignoreHTTPSErrors: false
         });
         const page = await context.newPage();
+        page.setDefaultNavigationTimeout(30000);
 
         try {
-            await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 30000 });
+            const cookieSelectors = [
+                'button:has-text("Akceptuj")',
+                'button:has-text("Accept all")',
+                '#onetrust-accept-btn-handler',
+                '.cookie-accept-button'
+            ];
 
-            const handled = await handleCookieConsentManually(page);
-            if (handled) {
-                console.log('[render] Obsłużono popup cookie');
-                await page.waitForTimeout(1000);
+            for (const selector of cookieSelectors) {
+                const button = await page.$(selector);
+                if (button) {
+                    await button.click();
+                    console.log(`[render] Zamknięto popup: ${selector}`);
+                    await page.waitForTimeout(300);
+                    break;
+                }
             }
-        } catch (consentError) {
-            console.warn('[render] Błąd podczas obsługi popupu:', consentError.message);
+        } catch (e) {
         }
-
-        page.setDefaultNavigationTimeout(30000);
 
         let response;
         try {
@@ -160,7 +131,8 @@ app.get('/render', async (req, res) => {
         }
 
         res.json({ html, status, finalUrl });
-    } catch (err) {
+    }
+    catch (err) {
         if (context) await context.close().catch(() => { });
         activePages--;
         console.error('[render] błąd dla', targetUrl, '-', err.message);
