@@ -6,6 +6,7 @@ const express = require('express');
 const cors = require('cors');
 const { chromium } = require('playwright');
 const { handleCookieConsent } = require('playwright-autoconsent');
+
 // 1. Importuje paczkę express-rate-limit
 const rateLimit = require('express-rate-limit');
 
