@@ -11,17 +11,12 @@ prawdziwej przeglądarce Chromium **po stronie serwera**. Dzięki temu:
 - **Część prostych blokad anty-botowych jest omijana**, bo to realna
   przeglądarka z pełnym renderowaniem, a nie goły `fetch`.
 
-To nie jest sposób na łamanie zabezpieczeń serwisów — logowanie, CAPTCHA
-wymagająca interakcji człowieka czy świadome blokady IP nadal zadziałają.
-To po prostu poprawny, "grzeczny" sposób pobierania treści do audytu.
-
 ## Uruchomienie lokalnie
 
 ```bash
 cd render-server
-npm install          # zainstaluje też Chromium dla Playwright (postinstall)
+npm install
 npm start
-# -> [render-server] nasłuchuje na porcie 3001
 ```
 
 Test:
@@ -35,14 +30,8 @@ curl "http://localhost:3001/render?url=https://example.com"
 W `application.js` znajduje się zmienna na górze pliku:
 
 ```js
-var RENDER_SERVER_URL = 'http://localhost:3001';
+var RENDER_SERVER_URL = 'https://render-server-erqf.onrender.com';
 ```
-
-- Zostaw jak jest do developmentu lokalnego.
-- Do produkcji podmień na publiczny adres, pod którym wdrożysz ten serwer
-  (patrz sekcja "Wdrożenie produkcyjne" niżej).
-- Ustaw na pusty string `''`, aby całkowicie wyłączyć i wrócić do starego
-  zachowania (bezpośredni fetch + publiczne proxy).
 
 Kolejność prób pobierania po zmianie:
 1. Własny serwer renderujący (jeśli `RENDER_SERVER_URL` ustawiony)

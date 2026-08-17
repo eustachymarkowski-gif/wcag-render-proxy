@@ -1,24 +1,28 @@
 // ============================================================
 // WCAG Render Proxy - serwer pomocniczy do pobierania stron
 // ============================================================
-// Renderuje stronę w prawdziwej przeglądarce (Chromium/Playwright)
-// po stronie serwera, więc:
-//  - CORS w ogóle nie wchodzi w grę (żądanie robi serwer, nie przeglądarka usera)
-//  - zwrócony HTML zawiera treść wygenerowaną przez JS (SPA, React itd.),
-//    co jest kluczowe dla rzetelnego audytu WCAG
-//  - część prostych blokad anty-botowych (opartych o User-Agent lub
-//    wykrywanie "headless") jest omijana, bo to realna przeglądarka
-//
-// Uwaga: to NIE jest sposób na łamanie zabezpieczeń stron - serwer
-// nadal respektuje standardowe kody HTTP i nie próbuje obchodzić
-// logowania, CAPTCHA wymagającej interakcji człowieka itd.
 
 const express = require('express');
 const cors = require('cors');
 const { chromium } = require('playwright');
+// 1. Importuje paczkę express-rate-limit
+const rateLimit = require('express-rate-limit');
 
 const app = express();
-app.use(cors()); // ten serwer sam wystawia CORS dla waszej aplikacji frontendowej
+app.set('trust proxy', 1);
+app.use(cors());
+
+// 2. Ustawienia limitera
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minut
+    limit: 100, // Limit: 100 zapytań na IP w podanym oknie
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Zbyt wiele zapytań z tego adresu IP, spróbuj ponownie później.'
+});
+
+// 3. Stosowanie limitera do wszystkich zapytań
+app.use(limiter);
 
 const PORT = process.env.PORT || 3001;
 const MAX_CONCURRENT_PAGES = 4;
@@ -46,7 +50,6 @@ function isSafeUrl(raw) {
     if (!['http:', 'https:'].includes(parsed.protocol)) {
         return { ok: false, reason: 'Dozwolone są tylko adresy http:// i https://' };
     }
-    // podstawowa ochrona przed SSRF do sieci wewnętrznej/localhost serwera
     const host = parsed.hostname.toLowerCase();
     const blocked = ['localhost', '127.0.0.1', '0.0.0.0', '::1'];
     if (blocked.includes(host) || host.endsWith('.local')) {
@@ -91,13 +94,9 @@ app.get('/render', async (req, res) => {
         try {
             response = await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 30000 });
         } catch (navErr) {
-            // niektóre strony nigdy nie osiągają "networkidle" (np. ciągły polling) -
-            // spróbuj łagodniejszego warunku zanim się poddamy
             response = await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         }
 
-        // dodatkowy czas na późny JS (lazy-load, treści dokładane po chwili,
-        // regiony aria-live itp. - istotne dla audytu dostępności)
         await page.waitForTimeout(1200);
 
         const html = await page.content();
@@ -111,7 +110,7 @@ app.get('/render', async (req, res) => {
             return res.status(502).json({
                 error: 'Serwer docelowy zwrócił HTTP ' + status,
                 status,
-                html // i tak zwracamy treść - może to np. strona 404 z treścią wartą audytu
+                html
             });
         }
 
@@ -131,7 +130,7 @@ async function shutdown() {
         try {
             const browser = await browserPromise;
             await browser.close();
-        } catch (e) { /* noop */ }
+        } catch (e) {}
     }
     process.exit(0);
 }
